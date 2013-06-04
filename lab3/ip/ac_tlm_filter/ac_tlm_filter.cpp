@@ -7,6 +7,8 @@
 
 //////////////////////////////////////////////////////////////////////////////
 
+#include <math.h>
+
 /// Namespace to isolate filter from ArchC
 using user::ac_tlm_filter;
 
@@ -21,8 +23,8 @@ ac_tlm_filter::ac_tlm_filter(sc_module_name module_name)
     target_export(*this);
 
     /// Initialize memory vector
-    memory = new uint8_t[40];
-    for (k = 39; k > 0; k--) memory[k] = 0;
+    memory = new uint8_t[44];
+    for (k = 43; k > 0; k--) memory[k] = 0;
 }
 
 /// Destructor
@@ -41,7 +43,7 @@ ac_tlm_filter::~ac_tlm_filter()
 ac_tlm_rsp_status ac_tlm_filter::readm(const uint32_t &a, uint32_t &d)
 {
   uint32_t index = a - FILTER_ADDRESS;
-  int *result, *tl, *tc, *tr, *ml, *mc, *mr, *bl, *bc, *br;
+  int *result, *type, *tl, *tc, *tr, *ml, *mc, *mr, *bl, *bc, *br;
 
   // Apply filter
   if (index == INDEX_RESULT) {
@@ -54,8 +56,14 @@ ac_tlm_rsp_status ac_tlm_filter::readm(const uint32_t &a, uint32_t &d)
     bl = (int *) &memory[INDEX_BL];
     bc = (int *) &memory[INDEX_BC];
     br = (int *) &memory[INDEX_BR];
+    type = (int *) &memory[INDEX_TYPE];
     result = (int *) &memory[INDEX_RESULT];
-    *result = mean_filter(*tl, *tc, *tr, *ml, *mc, *mr, *bl, *bc, *br);
+
+    if (*type == TYPE_SOBEL) {
+      *result = sobel_filter(*tl, *tc, *tr, *ml, *mc, *mr, *bl, *bc, *br);
+    } else {
+      *result = mean_filter(*tl, *tc, *tr, *ml, *mc, *mr, *bl, *bc, *br);
+    }
   }
 
   // Flip endianness
@@ -100,4 +108,36 @@ int ac_tlm_filter::mean_filter(int tl, int tc, int tr,
                                int ml, int mc, int mr,
                                int bl, int bc, int br) {
   return (tl + tc + tr + ml + mc + mr + bl + bc + br) / 9;
+}
+
+/**
+ * Apply the sobel filter on a 3x3 window.
+ * @param t_ top pixel
+ * @param m_ midle pixel
+ * @param b_ bottom pixel
+ * @param _l left pixel
+ * @param _c center pixel
+ * @param _r right pixel
+ */
+int ac_tlm_filter::sobel_filter(int tl, int tc, int tr,
+                                int ml, int mc, int mr,
+                                int bl, int bc, int br) {
+  int sum, sum_x = 0, sum_y = 0;
+
+  // Horizontal component
+  sum_x += 1 * tl + 0 * tc - 1 * tr;
+  sum_x += 2 * ml + 0 * mc - 2 * mr;
+  sum_x += 1 * bl + 0 * bc - 1 * br;
+
+  // Vertical component
+  sum_y +=  1 * tl + 2 * tc + 1 * tr;
+  sum_y +=  0 * ml + 0 * mc + 0 * mr;
+  sum_y += -1 * bl - 2 * bc - 1 * br;
+
+  // Combine both
+  sum = (int)sqrt(sum_x * sum_x + sum_y * sum_y);
+
+  if (sum < 0) return 0;
+  if (sum > 255) return 255;
+  return sum;
 }
